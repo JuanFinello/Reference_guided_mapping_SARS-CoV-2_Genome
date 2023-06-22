@@ -1,0 +1,251 @@
+#### El siguiente script comprende el procesamiento de de un genoma de covid, partiendo del archivo fastq hasta llegar al ensamble del genoma por mapeo contrareferencia
+
+
+Samples prepared at Rosalind Franklin Laboratory by Donald Fraser, Suki Lee, Rob Howes, The Rosalind Franklin Laboratory and Alex Alderton, Roberto Amato, Jeffrey Barrett, Sonia Goncalves, Ewan Harrison, David K. Jackson, Ian Johnston, Dominic Kwiatkowski, Cordelia Langford, John Sillitoe on behalf of the Wellcome Sanger Institute COVID-19 Surveillance Team
+
+Organism:Severe acute respiratory syndrome coronavirus 2
+Sample Accession:SAMEA110427063
+Sample Title:COG-UK/LSPA-3EBED5E
+Center Name:Wellcome Sanger Institute
+Sample Alias:COG-UK/LSPA-3EBED5E
+Checklist:ERC000033
+Broker Name:SC
+ENA-CHECKLIST:ERC000033
+Host Health State:not provided
+Host Scientific Name:Human
+Collection Date:2022-07-05
+Sample Capture Status:active surveillance in response to outbreak
+Host Subject Id:not provided
+Geographic Location (Region And Locality):Scotland
+Host Common Name:Human
+Host Sex:not provided
+Isolate:not provided
+Collector Name:not provided
+ENA-FIRST-PUBLIC:2022-07-28
+ENA-LAST-UPDATE:2022-07-28
+Collecting Institution:Rosalind Franklin Laboratory
+Geographic Location (Country And/or Sea):United Kingdom
+
+
+## PROCESAMIENTO DE FASTQ UTILIZANDO PROGRAMA FASTQC
+
+# FastQC tiene como objetivo proporcionar una forma sencilla de realizar algunas comprobaciones de control de calidad en los datos de secuencia sin procesar que provienen de procesos de secuenciación de alto rendimiento. Proporciona un conjunto modular de análisis que puede utilizar para dar una impresión rápida de si sus datos tienen algún problema que deba tener en cuenta antes de realizar más análisis.
+
+
+fastqc -o resultados/ ERR10000020_1.fastq.gz 
+fastqc -o resultados/ ERR10000020_2.fastq.gz 
+
+
+# UNZIP FILES
+
+gzip -d ERR10000020_1.fastq.gz 
+gzip -d ERR10000020_2.fastq.gz 
+
+
+# Cheq quality score format
+
+head -n 4 ERR10000020_2.fastq
+
+
+
+
+
+###### PRINTSEQ para limpiar los archivos fastq
+
+## PRINSEQ se puede utilizar para filtrar, reformatear o recortar sus datos de secuencias genómicas y metagenómicas. Genera estadísticas de resumen de sus secuencias en formato gráfico y tabular. Es fácilmente configurable y proporciona una interfaz fácil de usar.
+
+prinseq-lite.pl -fastq ERR10000020_1.fastq -fastq2 ERR10000020_2.fastq -out_good good/ -out_bad bad/ -min_qual_mean 30  -trim_right 20 -trim_left 10
+
+	Input sequences (file 1): 1,081,505
+	Input bases (file 1): 237,863,510
+	Input mean length (file 1): 219.94
+	Input sequences (file 2): 1,081,505
+	Input bases (file 2): 216,099,239
+	Input mean length (file 2): 199.81
+	Good sequences (pairs): 1,007,852
+	Good bases (pairs): 403,049,360
+	Good mean length (pairs): 399.91
+	Good sequences (singletons file 1): 44,110 (4.08%)
+	Good bases (singletons file 1): 9,198,502
+	Good mean length (singletons file 1): 208.54
+	Good sequences (singletons file 2): 10,292 (0.95%)
+	Good bases (singletons file 2): 1,950,051
+	Good mean length (singletons file 2): 189.47
+	Bad sequences (file 1): 29,543 (2.73%)
+	Bad bases (file 1): 6,478,851
+	Bad mean length (file 1): 219.30
+	Bad sequences (file 2): 63,361 (5.86%)
+	Bad bases (file 2): 12,584,925
+	Bad mean length (file 2): 198.62
+	Sequences filtered by specified parameters:
+	trim_right: 3
+	min_qual_mean: 92901
+
+	
+	
+# MAPEO CONTRA REFERENCIA
+
+# Es una aproximacion para ensamblar un genoma, sirve por ejm para coronavirus en donde tenemos un buen genoma de referencia.El objetivo es llegar a la secuencia concenso
+
+# BWA es un paquete de software para mapear secuencias poco divergentes contra un gran genoma de referencia
+# necesito primero un genoma de referencia en formato fasta, a ese genoma
+# voy a hacerle un index
+
+
+mkdir BWA
+
+# este codigo me genera 5 archivos con el indice
+
+bwa index -p BWA/SarsCov2 WIV04_sars_cov_2.fasta
+
+# VAMOS A ALINEAR Y OBTENER UN ARCHIVO SAM, QUE DEBERIA LLAMARSE IGUAL AL FASTQ DE ENTRADA + version del genonma en contra el cual alineamos
+# BWA/SarsCov2 indica el alineamiento, no hace falto poner el prefijo, el programa interpreta solo.
+
+bwa mem -o BWA/ER1_SarSCoV2.sam BWA/SarsCov2 _1.fastq _2.fastq
+
+#El archivo sam no esta ordenado, para esto usamos SAMTOOLS
+
+samtools sort -o XO910_SarSCov2.bam XO910_SarSCov2.sam 
+
+# La salida es el archivo vam con las secuencias ordenadas
+# El siguiente paso consiste en indexar el archivo bam
+
+samtools index XO910_SarSCov2.bam
+
+# la salida es un archivo .bam.bai (XO910_SarSCov2.bam)
+# para ver el contenido del bam usamos tmb samtools
+
+samtools view XO910_SarSCov2.bam
+
+
+## Para ver el alineamiento podemos usar IGV
+
+### Llamado de Variantes
+# Leemos nuestro archivo bam, obtenemos toda las diferencia relevantes y representativas ()
+# El listado de variantes es un archivo vcf. Nos dice que posiciones son diferentes a la referencia, cual es esa diferencia
+# Variant calling: Use the samtools mpileup command to generate a pileup file containing read alignments and base information at each genomic position.
+
+ bcftools mpileup -Ou -f sequence.fasta XO910_SarSCov2.bam | bcftools call -Ou -mv -o XO910_SarSCov2.bcf
+
+
+# Call variants and convert to VCF: Use the bcftools call command to call variants based on the pileup information and convert the output to VCF format.
+
+bcftools call -c XO910_SarSCov2.bcf > XO910_SarSCov2.vcf
+
+# Compress the VCF file using bgzip: Run the following command to compress the VCF file and create a compressed file with the extension ".vcf.gz":
+
+bgzip -c XO910_SarSCov2.vcf > XO910_SarSCov2.vcf.gz
+
+#Index the compressed VCF file using tabix: Run the following command to create an index file (.csi o .tbi ke e lo mismo) for the compressed VCF file:
+
+tabix -p vcf XO910_SarSCov2.vcf.gz
+
+# Generar la sequencia consenso
+
+bcftools consensus -f sequence.fasta -o fastasalida.fasta XO910_SarSCov2.vcf.gz
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#### ENSAMBLADO 
+
+ls -lh X0910_S249_R1_001.fastq
+ls -lh X0910_S249_R1_001.fastq
+
+#Parto de un par de archivos fastq, que ya fueron limpios (Sin adaptadores ni secuencias de baja calidad). 
+
+# Para saber la covertura de la secuenciacion tengo que sumar todas las bases del archivo y dividirlo por el tamaño del genoma de referencia.
+
+cat X0910_S249_R1_001.fastq  X0910_S249_R2_001.fastq | paste - - - - | awk '{print $3}' | wc -m
+
+cat X0910_S249_R1_001.fastq  X0910_S249_R2_001.fastq | paste - - - - | awk '{print $3}'| pr -d '\n' | wc -m
+
+covertura = echo $((76620495/30000)) = 2554
+
+
+
+# Spades (uno de los programas mas empleados para hacer ensambles de cualquier tipo, tiene una version para ensamble de coronavirus ) 
+
+mkdir resultsX09
+
+spades.py --corona -t 1 -m 7 -1 X0910_S249_R1_001.fastq -2 X0910_S249_R2_001.fastq -0 resultsX09/
+
+cd resultsX09
+
+# Para ver el scaffolds que se creó
+
+less scaffols.fasta
+
+grep -c '^>' scaffolds.fasta 
+
+
+
+### OTRO TIPO DE ENCAMBLADO #### Ensamble con referencia utilizando “Mira
+
+#crear un archivo mira.conf con los siguientes comandos:
+
+project = sc2_0910
+job = genome,mapping,accurate
+parameters = COMMON_SETTINGS -GE:not=2:kpmf=10 \
+-NW:cmrnl=no:cac=no -CO:fnic=yes \
+-OUT:rtd=yes:orc=no:orm=no:orw=no:otm=no \
+SOLEXA_SETTINGS -AS:mrl=1000 -CL:spx174=no
+
+readgroup
+is_reference
+data = sc2_wuhan.fna
+strain = ref
+
+readgroup = X0910
+data = X0910half_S249_R1_001.fastq.gz X0910half_S249_R2_001.fastq.gz
+technology = solexa
+# template_size = 150 450
+segment_placement = ---> <---
+strain = wk
+
+
+#Correr el siguiente comando
+$ mira mira.conf
+
+# Los output de este programa son cuatro bloques de secuencias, y dos tipos de fasta
+# Uno con la seq y otro con la calidad de la seq
+# Nos quedamos con sc2_0910_d_results/sc2_0910_out_AllStrains.unpadded.fasta
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
